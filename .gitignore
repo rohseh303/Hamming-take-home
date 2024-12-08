@@ -1,0 +1,10 @@
+__pycache__/*
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.DS_Store
+__pycache__/flask.cpython-313.pyc
+config/__pycache__/settings.cpython-313.pyc
+models/__pycache__/call_tree.cpython-313.pyc
