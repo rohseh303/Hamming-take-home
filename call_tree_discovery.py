@@ -137,23 +137,73 @@ def analyze_conversation_and_get_responses(conversation_history: str) -> List[st
         return []
 
 def truncate_history_at_decision_point(conversation_history: str, dp: Dict[str, Any]) -> str:
-    # Extract the agent's question and user's response from the decision point
-    agent_line = dp['agent_line']
-    user_response = dp['original_user_response']
-    
-    # Combine them to find where this Q&A occurs in the conversation
-    qa_pair = f"{agent_line} {user_response}"
-    qa_pos = conversation_history.find(qa_pair)
-    logger.info(f"{qa_pair} found at position {qa_pos}")
-    # If we can't find this exact Q&A pair, return the original history
-    if qa_pos == -1:
-        logger.warning(f"Could not find Q&A pair in conversation history")
-        return conversation_history
+    try:
+        # Extract the agent's question and user's response from the decision point
+        agent_line = dp['agent_line']
+        user_response = dp['original_user_response']
         
-    # Cut off the history right after the agent's line
-    # (qa_pos + len(agent_line)) gives us the position right after the agent's question
-    truncated_history = conversation_history[:qa_pos + len(agent_line)]
-    return truncated_history
+        # First try exact matching
+        qa_pair = f"{agent_line} {user_response}"
+        qa_pos = conversation_history.find(qa_pair)
+        
+        if qa_pos != -1:
+            # Cut off the history right after the agent's line
+            truncated_history = conversation_history[:qa_pos + len(agent_line)]
+            return truncated_history
+            
+        # If exact match fails, try semantic matching with embeddings
+        client = openai.OpenAI()
+        dp_embedding = client.embeddings.create(
+            model="text-embedding-3-small",
+            input=agent_line
+        ).data[0].embedding
+
+        # Split the conversation into segments at each speaker change
+        segments = []
+        current_segment = ""
+        for part in conversation_history.split(". "):
+            if any(speaker in part for speaker in ["Hi,", "Hello,", "Thank you", "Yes", "No", "Great", "I'm sorry"]):
+                if current_segment:
+                    segments.append(current_segment.strip())
+                current_segment = part
+            else:
+                current_segment += ". " + part
+        if current_segment:
+            segments.append(current_segment.strip())
+
+        # Find best matching segment
+        best_match_score = 0
+        best_match_idx = -1
+
+        for i, segment in enumerate(segments):
+            segment_embedding = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=segment
+            ).data[0].embedding
+            
+            similarity = cosine_similarity(dp_embedding, segment_embedding)
+            
+            if similarity > best_match_score:
+                best_match_score = similarity
+                best_match_idx = i
+
+        if best_match_idx == -1 or best_match_score < 0.8:  # Adjusted threshold
+            logger.warning(f"Could not find matching agent line (best score: {best_match_score})")
+            return conversation_history
+            
+        # Truncate at the best matching segment
+        truncated_history = ". ".join(segments[:best_match_idx + 1]) + "."
+        return truncated_history
+
+    except Exception as e:
+        logger.error(f"Error in matching: {e}")
+        return conversation_history
+
+def cosine_similarity(v1, v2):
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    norm1 = sum(a * a for a in v1) ** 0.5
+    norm2 = sum(b * b for b in v2) ** 0.5
+    return dot_product / (norm1 * norm2)
 
 def run_baseline_conversation(phone_number: str, webhook_url: str) -> str:
     """
