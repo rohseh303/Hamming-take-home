@@ -1,0 +1,32 @@
+// Conversation DAG
+digraph {
+	rankdir=TB
+	"6e629d27-ef5f-4987-9081-c941b5be5405" [label="No decision point"]
+	"a57f5e1d-58f4-4f81-95e0-33ce059da26a" [label="Hello. Thank you for calling Anthem Air Conditioning and Plumbing. Are you an existing customer?"]
+	"eb713a03-bcd0-4188-a0dd-6ea6d773b7df" [label="First, can I have your name and physical Sure?"]
+	"1e8f32f6-33dc-44b6-a739-d406e16cc574" [label="Could you please provide your physical address?"]
+	"852b8de5-93cb-4500-8994-2ac89e52a93d" [label="Is this an emergency?"]
+	"802aa217-c61b-4c7f-af0d-2203f2aafd4c" [label="What kind of issue are you facing?"]
+	"ffe88c34-2132-421b-a7b9-171399df8e5a" [label="Is there anything else I can assist you with in the meantime?"]
+	"822d36cf-ec5b-4f1c-be40-7525e2bd1164" [label="Could you clarify if you're facing any specific issues, such as with air conditioning, heating, or plumbing?"]
+	"03225e58-4848-451d-9d21-ac498ae43262" [label="Would you like to schedule a service appointment?"]
+	"7d540ea6-07d3-46aa-8eaf-8bd9ddea7e1e" [label="Is there a preferred time for the call?"]
+	"a8d215bb-f09d-4ef3-88d6-5f2c4f1f0a6c" [label="Could you please provide me with your wife's name so I can check?"]
+	"e0e6cb03-79a1-415f-ba00-f36b20269c72" [label=error]
+	"6e629d27-ef5f-4987-9081-c941b5be5405" -> "a57f5e1d-58f4-4f81-95e0-33ce059da26a" [label="1) \"i am a new customer looking for some information.\" (new customer inquiry)
+2)"]
+	"a57f5e1d-58f4-4f81-95e0-33ce059da26a" -> "03225e58-4848-451d-9d21-ac498ae43262" [label="1) \"sure, i can help with that. what day and time works best for you?\""]
+	"a57f5e1d-58f4-4f81-95e0-33ce059da26a" -> "e0e6cb03-79a1-415f-ba00-f36b20269c72" [label="Error: Call timeout."]
+	"a57f5e1d-58f4-4f81-95e0-33ce059da26a" -> "eb713a03-bcd0-4188-a0dd-6ea6d773b7df" [label="1. nice to meet you, alex smith. how can i assist you today? (category:"]
+	"a57f5e1d-58f4-4f81-95e0-33ce059da26a" -> "7d540ea6-07d3-46aa-8eaf-8bd9ddea7e1e" [label="1) \"sure, i'll arrange for them to call you tomorrow morning.\" (category: confirmation"]
+	"eb713a03-bcd0-4188-a0dd-6ea6d773b7df" -> "822d36cf-ec5b-4f1c-be40-7525e2bd1164" [label="1. \"alright, we can certainly help with that. what kind of maintenance are you looking for"]
+	"eb713a03-bcd0-4188-a0dd-6ea6d773b7df" -> "1e8f32f6-33dc-44b6-a739-d406e16cc574" [label="1) \"great, thank you for sharing your address.\" (acknowledgement)
+2) \"thanks"]
+	"1e8f32f6-33dc-44b6-a739-d406e16cc574" -> "ffe88c34-2132-421b-a7b9-171399df8e5a" [label="1) \"alright, feel free to reach out if you need anything else. have a great day"]
+	"1e8f32f6-33dc-44b6-a739-d406e16cc574" -> "852b8de5-93cb-4500-8994-2ac89e52a93d" [label="1. \"okay, i understand. can you please explain the situation to me?\" (category:"]
+	"1e8f32f6-33dc-44b6-a739-d406e16cc574" -> "802aa217-c61b-4c7f-af0d-2203f2aafd4c" [label="1) \"i'm sorry to hear that. have you checked if the filter is clean and the"]
+	"7d540ea6-07d3-46aa-8eaf-8bd9ddea7e1e" -> "e0e6cb03-79a1-415f-ba00-f36b20269c72" [label="Error: Call timeout."]
+	"7d540ea6-07d3-46aa-8eaf-8bd9ddea7e1e" -> "a8d215bb-f09d-4ef3-88d6-5f2c4f1f0a6c" [label="1. \"okay, i'll look up sarah williams in our system.\" (category: acknowled"]
+	start [label=Start fillcolor="#E8FFE8" shape=circle style=filled]
+	start -> "6e629d27-ef5f-4987-9081-c941b5be5405"
+}

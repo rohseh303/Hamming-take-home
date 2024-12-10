@@ -1,4 +1,0 @@
-from call_tree_discovery import truncate_history_at_decision_point
-
-x = truncate_history_at_decision_point("Hello. Thank you for calling Anthem Air Conditioning and Plumbing. This is Olivia speaking. Are you an existing customer? Hi, Olivia. I was wondering. Yes. I am an existing customer. Great. Is this an emergency? No. It's not an emergency. I just have a few questions about my service plan. I'm sorry, but I can't help with questions about service plans. Let me transfer you to someone who can assist you. Goodbye. Let me end the call for you.", {'agent_line': 'Are you an existing customer?', 'original_user_response': 'Yes. I am an existing customer.', 'alternates': ["No, I'm a new customer.", "I'm not sure. I think someone else in my household might have used your services before.", "I don't remember. Can you check it for me?", "Yes, but I haven't used your services for a while."]})
-print(x)

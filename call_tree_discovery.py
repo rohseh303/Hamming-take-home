@@ -7,16 +7,20 @@ import openai
 from config.settings import OPENAI_API_KEY, WEBHOOK_PORT, TEST_PHONE_NUMBER, MAX_DEPTH, CALLER_SYSTEM_PROMPT, SYSTEM_PROMPT
 from models.call_tree import CallNode, CallGraph, build_dag_from_callgraph, visualize_dag_as_dot
 from web.webhook import get_public_url, app, wait_for_call_completion, webhook
-from services.hamming_api import BASE_URL, MEDIA_URL, start_call, get_recording, transcribe_audio
+from services.hamming_api import BASE_URL, MEDIA_URL, start_call, get_recording, transcribe_audio, truncate_history_at_decision_point
 
 openai.api_key = OPENAI_API_KEY
+
+# Suppress Flask access logs
+# werkzeug_logger = logging.getLogger('werkzeug')
+# werkzeug_logger.setLevel(logging.ERROR)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 # Set to keep track of processed decision point identifiers
-PROCESSED_DECISION_POINTS = set()
-DECISION_POINTS_LOCK = threading.Lock()
+PREVIOUS_DECISION_POINTS = set()
+PREVIOUS_DECISION_POINTS_LOCK = threading.Lock()
 
 def determine_possible_responses(agent_transcript: str) -> List[str]:
     try:
@@ -136,89 +140,17 @@ def analyze_conversation_and_get_responses(conversation_history: str) -> List[st
         logger.exception("Full traceback:")
         return []
 
-def truncate_history_at_decision_point(conversation_history: str, dp: Dict[str, Any]) -> str:
-    try:
-        # Extract the agent's question and user's response from the decision point
-        agent_line = dp['agent_line']
-        user_response = dp['original_user_response']
-        
-        # First try exact matching
-        qa_pair = f"{agent_line} {user_response}"
-        qa_pos = conversation_history.find(qa_pair)
-        
-        if qa_pos != -1:
-            # Cut off the history right after the agent's line
-            truncated_history = conversation_history[:qa_pos + len(agent_line)]
-            return truncated_history
-            
-        # If exact match fails, try semantic matching with embeddings
-        client = openai.OpenAI()
-        dp_embedding = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=agent_line
-        ).data[0].embedding
-
-        # Split the conversation into segments at each speaker change
-        segments = []
-        current_segment = ""
-        for part in conversation_history.split(". "):
-            if any(speaker in part for speaker in ["Hi,", "Hello,", "Thank you", "Yes", "No", "Great", "I'm sorry"]):
-                if current_segment:
-                    segments.append(current_segment.strip())
-                current_segment = part
-            else:
-                current_segment += ". " + part
-        if current_segment:
-            segments.append(current_segment.strip())
-
-        # Find best matching segment
-        best_match_score = 0
-        best_match_idx = -1
-
-        for i, segment in enumerate(segments):
-            segment_embedding = client.embeddings.create(
-                model="text-embedding-3-small",
-                input=segment
-            ).data[0].embedding
-            
-            similarity = cosine_similarity(dp_embedding, segment_embedding)
-            
-            if similarity > best_match_score:
-                best_match_score = similarity
-                best_match_idx = i
-
-        if best_match_idx == -1 or best_match_score < 0.8:  # Adjusted threshold
-            logger.warning(f"Could not find matching agent line (best score: {best_match_score})")
-            return conversation_history
-            
-        # Truncate at the best matching segment
-        truncated_history = ". ".join(segments[:best_match_idx + 1]) + "."
-        return truncated_history
-
-    except Exception as e:
-        logger.error(f"Error in matching: {e}")
-        return conversation_history
-
-def cosine_similarity(v1, v2):
-    dot_product = sum(a * b for a, b in zip(v1, v2))
-    norm1 = sum(a * a for a in v1) ** 0.5
-    norm2 = sum(b * b for b in v2) ** 0.5
-    return dot_product / (norm1 * norm2)
-
 def run_baseline_conversation(phone_number: str, webhook_url: str) -> str:
     """
     Runs a baseline conversation starting with the system prompt.
     """
-    # Initialize conversation history with system prompt as User instruction
-    conversation_history = f"User: {CALLER_SYSTEM_PROMPT}"
-
     # Start the initial call
-    call_id = start_call(phone_number, conversation_history, webhook_url)
+    call_id = start_call(phone_number, "", webhook_url)
 
     # Wait for the call to complete
     if not wait_for_call_completion(call_id):
         logger.error("Baseline call timed out.")
-        return conversation_history
+        return
 
     # Retrieve and transcribe the recording
     audio_data = get_recording(call_id)
@@ -245,8 +177,70 @@ def categorize_response(response: str) -> str:
         return completion.choices[0].message.content.strip().lower()
     except Exception as e:
         logger.error(f"Error categorizing response: {e}")
-        return "other"  # Fallback category
+        return "other"
 
+def is_semantically_similar(new_response: str, visited_responses: set) -> bool:
+    """
+    Use GPT-4 to determine if a new response is semantically similar to any previously visited responses.
+    """
+    try:
+        # Convert visited responses to a list for better prompt formatting
+        visited_list = list(visited_responses)
+        
+        prompt = (
+            "Compare the new response with the list of previous responses and determine if it's semantically similar "
+            "to any of them. Return 'true' if similar, 'false' if unique.\n\n"
+            f"New response: '{new_response}'\n\n"
+            f"Previous responses: {json.dumps(visited_list, indent=2)}"
+        )
+
+        client = openai.OpenAI()
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a semantic similarity analyzer. Compare responses and determine if they convey the same intent or meaning, even if worded differently."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0  # Use 0 for consistent results
+        )
+        
+        result = completion.choices[0].message.content.strip().lower()
+        return 'true' in result
+    except Exception as e:
+        logger.error(f"Error checking semantic similarity: {e}")
+        return False
+
+def is_similar_decision_point(agent_line: str, previous_decision_points: set) -> bool:
+    """
+    Use GPT-4 to determine if this agent question/prompt is semantically similar
+    to any previously encountered decision points.
+    """
+    try:
+        previous_list = list(previous_decision_points)
+        
+        prompt = (
+            "Compare the new agent question/prompt with the list of previous ones and determine if it's semantically similar "
+            "to any of them (i.e., asking for the same type of information or presenting similar choices). "
+            "Return 'true' if similar, 'false' if unique.\n\n"
+            f"New question: '{agent_line}'\n\n"
+            f"Previous questions: {json.dumps(previous_list, indent=2)}"
+        )
+
+        client = openai.OpenAI()
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a semantic similarity analyzer for conversation decision points. Compare agent questions/prompts to determine if they are asking for the same type of information or presenting similar choices, even if worded differently."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+        
+        result = completion.choices[0].message.content.strip().lower()
+        return 'true' in result
+    except Exception as e:
+        logger.error(f"Error checking decision point similarity: {e}")
+        return False
 
 def explore_branches(
     phone_number: str,
@@ -259,93 +253,78 @@ def explore_branches(
     """
     Recursively explores conversation branches based on decision points.
     """
-    # Extract user responses from history
-    user_responses = [line[len("User: "):] for line in conversation_history.split('\n') if line.startswith("User:")]
-
+    global PREVIOUS_DECISION_POINTS
+    
     # Check for maximum depth
     if depth >= max_depth:
         logger.info(f"Reached maximum depth {max_depth}. Stopping recursion.")
-        return CallNode(user_responses, "Max depth reached.", "max_depth_reached")
+        return CallNode(None, "max_depth_reached")
+    
+    # Initialize the node with decision point and response category
+    decision_point = ""  # Replace with actual decision point if available
+    response_category = categorize_response(current_response)
+    node = CallNode(decision_point, response_category)
 
     # Identify decision points in the conversation
     decision_points = analyze_conversation_and_get_responses(conversation_history)
-    logger.info(f"Decision points: {decision_points}")
+    logger.info(f"Decision points found: {len(decision_points)}")
     
     # If no decision points, return node with final agent transcript
     if not decision_points:
-        last_agent_line = "No further agent responses."
-        node = CallNode(user_responses, last_agent_line, "end_of_conversation")
         return node
-
-    # Initialize last_agent_line
-    last_agent_line = conversation_history.split('\n')[-1] if conversation_history else "No agent response."
-    
-    # Initialize node with the response category from the last user response
-    last_user_response = user_responses[-1] if user_responses else ""
-    response_category = categorize_response(last_user_response)
-    node = CallNode(user_responses, last_agent_line, response_category)
 
     # Iterate over each decision point
     for dp in decision_points:
-        logger.info(f"Decision point: {dp}")
-        agent_line = dp.get("agent_line", "")
-        original_user_response = dp.get("original_user_response", "")
+        agent_question = dp.get("agent_line", "")
+        original_response = dp.get("original_user_response", "")
         alternates = dp.get("alternates", [])
-
-        # Categorize the response before checking duplicates
-        response_category = categorize_response(original_user_response)
         
-        # Create a more semantic identifier using the response category
-        dp_identifier = f"{response_category}-{agent_line[:50]}"
-
-        with DECISION_POINTS_LOCK:
-            if dp_identifier in PROCESSED_DECISION_POINTS:
-                logger.info(f"Decision point category {dp_identifier} already processed. Skipping.")
+        # Check if we've seen a similar decision point before
+        with PREVIOUS_DECISION_POINTS_LOCK:
+            if is_similar_decision_point(agent_question, PREVIOUS_DECISION_POINTS):
+                logger.info(f"Skipping similar decision point: {agent_question[:50]}...")
                 continue
-            else:
-                PROCESSED_DECISION_POINTS.add(dp_identifier)
+            
+            PREVIOUS_DECISION_POINTS.add(agent_question)
 
-        # Truncate conversation history up to before the original user response
+        # Truncate conversation history up to the decision point
         truncated_history = truncate_history_at_decision_point(conversation_history, dp)
-        logger.info(f"Truncated history: {truncated_history}")
+        
+        # Explore each alternate response
         for alt_response in alternates:
-            # Create new conversation history with the alternate response
             new_history = f"{truncated_history}\nUser: {alt_response}"
-
-            # Avoid revisiting the same history
-            if new_history in visited:
-                logger.info("Already visited this conversation path. Skipping to avoid loops.")
+            
+            if is_semantically_similar(alt_response, {h.split('\n')[-1][6:] for h in visited if h}):
                 continue
 
             visited.add(new_history)
 
-            # Start a new call with the new history
-            logger.info(f"Exploring alternate response: {alt_response}")
             try:
                 new_call_id = start_call(phone_number, new_history, webhook_url)
+                if not wait_for_call_completion(new_call_id):
+                    continue
+                
+                audio_data = get_recording(new_call_id)
+                agent_transcript = transcribe_audio(audio_data)
+                updated_history = f"{new_history}\nAgent: {agent_transcript}"
+
+                # Create child node with both question and response
+                child_node = explore_branches(
+                    phone_number, 
+                    updated_history, 
+                    depth + 1, 
+                    max_depth, 
+                    visited, 
+                    webhook_url
+                )
+                # Store both the agent's question and user's response
+                child_node.decision_point = agent_question
+                child_node.response = alt_response
+                node.add_child(child_node)
+
             except Exception as e:
-                logger.error(f"Failed to start call with history:\n{new_history}\nError: {e}")
-                child_node = CallNode([alt_response], "Error: Failed to start call.", "error")
-                node.add_child(child_node)
+                logger.error(f"Error exploring branch: {e}")
                 continue
-
-            # Wait for the call to complete
-            if not wait_for_call_completion(new_call_id):
-                logger.error(f"Call {new_call_id} did not complete successfully")
-                child_node = CallNode([alt_response], "Error: Call timeout.", "error")
-                node.add_child(child_node)
-                continue
-
-            # Get and transcribe the recording
-            audio_data = get_recording(new_call_id)
-            agent_transcript = transcribe_audio(audio_data)
-
-            # Append the agent's response to the new history
-            updated_history = f"{new_history}\nAgent: {agent_transcript}"
-
-            # Recursively explore further branches
-            child_node = explore_branches(phone_number, updated_history, depth + 1, max_depth, visited, webhook_url)
-            node.add_child(child_node)
 
     return node
 
@@ -357,14 +336,10 @@ def main():
     )
     server_thread.start()
 
-    # Obtain the public webhook URL via ngrok
     WEBHOOK_URL = get_public_url(WEBHOOK_PORT)
     logger.info(f"Using webhook URL: {WEBHOOK_URL}")
-
-    # Give the server some time to start
     time.sleep(2)
 
-    # Run the baseline conversation to get the initial conversation history
     logger.info("Running baseline conversation...")
     try:
         baseline_history = run_baseline_conversation(TEST_PHONE_NUMBER, WEBHOOK_URL)

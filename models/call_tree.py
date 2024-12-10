@@ -3,15 +3,14 @@ import uuid
 from rich.tree import Tree as RichTree
 from rich.console import Console
 import graphviz
-import openai  # You'll need to add this import at the top
+import openai
 
 console = Console()
 
 class CallNode:
-    def __init__(self, user_responses: List[str], agent_transcript: str, response_category: str = "unknown"):
+    def __init__(self, decision_point: str = None, response_category: str = "unknown", ):
         self.node_id = str(uuid.uuid4())
-        self.user_responses = user_responses
-        self.agent_transcript = agent_transcript
+        self.decision_point = decision_point
         self.response_category = response_category
         self.children: List['CallNode'] = []
 
@@ -26,21 +25,21 @@ class CallGraph:
         self.root = root
 
 class DAGNode:
-    def __init__(self, user_category: str, agent_transcript: str):
+    def __init__(self, response_category: str, decision_point: str = None):
         self.id = str(uuid.uuid4())
-        self.user_category = user_category
-        self.agent_transcript = agent_transcript
-        self.out_edges = []  # List of DAGNode
+        self.response_category = response_category
+        self.decision_point = decision_point
+        self.out_edges = set()
 
 class ConversationDAG:
     def __init__(self):
-        self.nodes: Dict[Tuple[str, str], DAGNode] = {}
+        self.nodes: Dict[str, DAGNode] = {}
         self.root: DAGNode = None
 
-    def get_or_create_node(self, user_category: str, agent_transcript: str) -> DAGNode:
-        key = (agent_transcript, user_category)
+    def get_or_create_node(self, response_category: str, decision_point: str = None) -> DAGNode:
+        key = decision_point if decision_point else f"node_{str(uuid.uuid4())}"
         if key not in self.nodes:
-            node = DAGNode(user_category, agent_transcript)
+            node = DAGNode(response_category, decision_point)
             self.nodes[key] = node
             if self.root is None:
                 self.root = node
@@ -48,21 +47,19 @@ class ConversationDAG:
         return self.nodes[key]
 
     def add_edge(self, from_node: DAGNode, to_node: DAGNode):
-        from_node.out_edges.append(to_node)
+        from_node.out_edges.add(to_node)
 
 def build_dag_from_callgraph(call_graph: CallGraph) -> ConversationDAG:
     dag = ConversationDAG()
     
     def dfs(call_node: CallNode):
-        # The category should now be stored in the CallNode from the exploration phase
-        user_category = call_node.response_category  # We'll need to add this field to CallNode
-        agent_transcript = call_node.agent_transcript
-
-        current_dag_node = dag.get_or_create_node(user_category, agent_transcript)
+        current_dag_node = dag.get_or_create_node(call_node.response_category, call_node.decision_point)
+        print(f"Created DAG node: {current_dag_node.id} with decision point: {current_dag_node.decision_point}")
 
         for child in call_node.children:
             child_dag_node = dfs(child)
             dag.add_edge(current_dag_node, child_dag_node)
+            print(f"Added edge from {current_dag_node.id} to {child_dag_node.id}")
 
         return current_dag_node
 
@@ -72,34 +69,44 @@ def build_dag_from_callgraph(call_graph: CallGraph) -> ConversationDAG:
 
 def visualize_dag_as_dot(dag: ConversationDAG, filename: str = "conversation_dag"):
     dot = graphviz.Digraph(comment="Conversation DAG")
+    dot.attr(rankdir='TB')
 
-    # Add nodes
-    for (agent_transcript, user_category), node in dag.nodes.items():
-        label = f"Agent: {agent_transcript[:20]}...\nUser Type: {user_category}"
-        dot.node(node.id, label=label)
+    # Add all nodes with simple styling
+    for node in dag.nodes.values():
+        display_text = node.decision_point if node.decision_point else "No decision point"
+        dot.node(node.id, label=display_text)
 
-    # Add edges
+    # Add edges with response categories as labels
     for node in dag.nodes.values():
         for child in node.out_edges:
-            dot.edge(node.id, child.id)
+            dot.edge(node.id, child.id, label=child.response_category)
+
+    # # Add start node
+    # dot.node('start', 'Start', shape='circle', style='filled', fillcolor='#E8FFE8')
+    # if dag.root:
+    #     dot.edge('start', dag.root.id)
 
     dot.render(filename, view=True)
 
-# def build_rich_tree(node: CallNode) -> RichTree:
-#     # this needs to have 4o to be able to take in all the paths and then group them together + build an actual DAG
-#     # Format node text (shorten transcript if too long)
-#     transcript_snippet = (node.agent_transcript[:50] + "...") if len(node.agent_transcript) > 50 else node.agent_transcript
-#     node_text = f"[bold green]{node.node_id}[/bold green]\nAgent: {transcript_snippet}\nUser: {node.user_responses}"
-    
-#     rtree = RichTree(node_text)
-#     for child in node.children:
-#         child_tree = build_rich_tree(child)
-#         rtree.add(child_tree)
-#     return rtree
+def visualize_call_tree(call_graph: CallGraph, filename: str = "conversation_tree"):
+    dot = graphviz.Digraph(comment="Conversation Tree")
+    dot.attr(rankdir='TB')
 
-# def print_rich_tree(call_graph: CallGraph):
-#     if call_graph.root is None:
-#         return
-#     rtree = build_rich_tree(call_graph.root)
-#     console.clear()  # Clear previous output for a "live update" feel
-#     console.print(rtree)
+    def add_nodes_and_edges(node: CallNode):
+        # Add current node
+        display_text = node.decision_point if node.decision_point else "No decision point"
+        dot.node(node.node_id, label=display_text)
+
+        # Add edges to all children
+        for child in node.children:
+            dot.node(child.node_id, label=child.decision_point if child.decision_point else "No decision point")
+            dot.edge(node.node_id, child.node_id, label=child.response_category)
+            add_nodes_and_edges(child)
+
+    # Add start node and connect to root
+    if call_graph.root:
+        dot.node('start', 'Start', shape='circle', style='filled', fillcolor='#E8FFE8')
+        dot.edge('start', call_graph.root.node_id)
+        add_nodes_and_edges(call_graph.root)
+
+    dot.render(filename, view=True)

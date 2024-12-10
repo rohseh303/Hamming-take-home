@@ -23,15 +23,15 @@ WEBHOOK_PORT = 5001
 
 # +16508798564 - Auto Dealership for new and used cars
 TEST_PHONE_NUMBER = "14153580761"
-MAX_DEPTH = 3
+MAX_DEPTH = 2
 
 # Prompts
 CALLER_SYSTEM_PROMPT = (
     "You are given a conversation history between a customer and an AI agent."
     "You are to play the role of the cusotmer in the conversation history and ensure that the store AI agent plays it's role according to the conversation history."
-    "After playing your part, wait for the store AI agent to play it's part. Then, end the call."
+    "After playing your part, wait for the store AI agent to play it's part."
     "Do not mention that you are an AI or that you are testing the system. Just follow the conversation history."
-    "If the conversation history is empty, wait for the store AI agent to start the conversation and end the call."
+    "If the conversation history is empty, wait for the store AI agent to start the conversation."
 )
 
 DECISION_POINT_SYSTEM_PROMPT = (
