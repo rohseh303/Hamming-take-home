@@ -5,7 +5,7 @@ import threading
 from typing import List, Dict, Any
 import openai
 from config.settings import OPENAI_API_KEY, WEBHOOK_PORT, TEST_PHONE_NUMBER, MAX_DEPTH, CALLER_SYSTEM_PROMPT, SYSTEM_PROMPT
-from models.call_tree import CallNode, CallGraph, build_dag_from_callgraph, visualize_dag_as_dot, visualize_call_tree
+from models.call_tree import CallNode, CallGraph, build_dag_from_callgraph, visualize_dag_as_dot
 from web.webhook import get_public_url, app, wait_for_call_completion, webhook
 from services.hamming_api import BASE_URL, MEDIA_URL, start_call, get_recording, transcribe_audio, truncate_history_at_decision_point
 from ssl import SSLError
@@ -216,6 +216,29 @@ def convert_to_declarative(question: str) -> str:
         logger.error(f"Error converting to declarative: {e}")
         return question  # Fallback to original question if conversion fails
 
+def is_conversation_end(agent_response: str) -> bool:
+    """
+    Determine if the agent's response indicates the end of the conversation.
+    """
+    try:
+        client = openai.OpenAI()
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": (
+                    "Determine if this is a conversation ending message (like a goodbye or call termination). "
+                    "Return only 'true' or 'false'."
+                )},
+                {"role": "user", "content": agent_response}
+            ],
+            temperature=0,
+            max_tokens=10
+        )
+        return 'true' in completion.choices[0].message.content.strip().lower()
+    except Exception as e:
+        logger.error(f"Error checking conversation end: {e}")
+        return False
+
 def explore_branches(
     phone_number: str,
     conversation_history: str,
@@ -235,12 +258,21 @@ def explore_branches(
         logger.info(f"Reached maximum depth {max_depth}. Stopping recursion.")
         return node
     
+    # Check if this is the end of the conversation
+    current_agent_response = conversation_history.split('\nAgent: ')[-1].strip()
+    if is_conversation_end(current_agent_response):
+        end_node = CallNode("END CALL", "conversation ended")
+        node.add_child(end_node)
+        return node
+
     # Identify decision points in the conversation
     decision_points = analyze_conversation_and_get_responses(conversation_history)
     logger.info(f"Decision points found: {len(decision_points)}")
     
-    # If no decision points, return node with final agent transcript
+    # If no decision points, add END CALL node and return
     if not decision_points:
+        end_node = CallNode("END CALL", "conversation ended")
+        node.add_child(end_node)
         return node
 
     # Iterate over each decision point
