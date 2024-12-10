@@ -73,7 +73,7 @@ def visualize_dag_as_dot(dag: ConversationDAG, filename: str = "conversation_dag
 
     # Add all nodes with simple styling
     for node in dag.nodes.values():
-        display_text = node.decision_point if node.decision_point else "No decision point"
+        display_text = node.decision_point if node.decision_point else "Start" if node == dag.root else "No decision point"
         dot.node(node.id, label=display_text)
 
     # Add edges with response categories as labels
@@ -81,32 +81,27 @@ def visualize_dag_as_dot(dag: ConversationDAG, filename: str = "conversation_dag
         for child in node.out_edges:
             dot.edge(node.id, child.id, label=child.response_category)
 
-    # # Add start node
-    # dot.node('start', 'Start', shape='circle', style='filled', fillcolor='#E8FFE8')
-    # if dag.root:
-    #     dot.edge('start', dag.root.id)
-
     dot.render(filename, view=True)
 
-def visualize_call_tree(call_graph: CallGraph, filename: str = "conversation_tree"):
-    dot = graphviz.Digraph(comment="Conversation Tree")
-    dot.attr(rankdir='TB')
+# def visualize_call_tree(call_graph: CallGraph, filename: str = "conversation_tree"):
+#     dot = graphviz.Digraph(comment="Conversation Tree")
+#     dot.attr(rankdir='TB')
 
-    def add_nodes_and_edges(node: CallNode):
-        # Add current node
-        display_text = node.decision_point if node.decision_point else "No decision point"
-        dot.node(node.node_id, label=display_text)
+#     def add_nodes_and_edges(node: CallNode):
+#         # Add current node
+#         display_text = node.decision_point if node.decision_point else "No decision point"
+#         dot.node(node.node_id, label=display_text)
 
-        # Add edges to all children
-        for child in node.children:
-            dot.node(child.node_id, label=child.decision_point if child.decision_point else "No decision point")
-            dot.edge(node.node_id, child.node_id, label=child.response_category)
-            add_nodes_and_edges(child)
+#         # Add edges to all children
+#         for child in node.children:
+#             dot.node(child.node_id, label=child.decision_point if child.decision_point else "No decision point")
+#             dot.edge(node.node_id, child.node_id, label=child.response_category)
+#             add_nodes_and_edges(child)
 
-    # Add start node and connect to root
-    if call_graph.root:
-        dot.node('start', 'Start', shape='circle', style='filled', fillcolor='#E8FFE8')
-        dot.edge('start', call_graph.root.node_id)
-        add_nodes_and_edges(call_graph.root)
+#     # # Add start node and connect to root
+#     # if call_graph.root:
+#     #     dot.node('start', 'Start', shape='circle', style='filled', fillcolor='#E8FFE8')
+#     #     dot.edge('start', call_graph.root.node_id)
+#     #     add_nodes_and_edges(call_graph.root)
 
-    dot.render(filename, view=True)
+#     dot.render(filename, view=True)

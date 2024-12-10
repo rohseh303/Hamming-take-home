@@ -23,7 +23,7 @@ WEBHOOK_PORT = 5001
 
 # +16508798564 - Auto Dealership for new and used cars
 TEST_PHONE_NUMBER = "14153580761"
-MAX_DEPTH = 2
+MAX_DEPTH = 4
 
 # Prompts
 CALLER_SYSTEM_PROMPT = (
