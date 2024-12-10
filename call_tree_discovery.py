@@ -361,7 +361,7 @@ def main():
     visualize_dag_as_dot(conversation_dag, "conversation_visualization")
     
     # Also visualize as a tree
-    visualize_call_tree(call_graph, "conversation_tree")
+    # visualize_call_tree(call_graph, "conversation_tree")
 
 if __name__ == "__main__":
     main()
