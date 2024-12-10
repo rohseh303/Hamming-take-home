@@ -1,0 +1,4 @@
+// Conversation Tree
+digraph {
+	rankdir=TB
+}
