@@ -1,0 +1,19 @@
+// Conversation DAG
+digraph {
+	rankdir=TB
+	"b1e3a46b-6f68-47ba-9b34-d248b232bec1" [label=Start]
+	"3fb10cd3-b6d6-41bb-9ecb-43ecce8cb03b" [label="You are an existing customer."]
+	"ebd21f78-9494-4686-b98f-47168ab67609" [label="This is an emergency."]
+	"82cde5d4-ac03-4753-8c2c-edb203dbd93d" [label="You are facing a certain kind of issue."]
+	"e0b39543-c04b-4ae6-9793-9cf18093efc4" [label="I need your name and physical address to check for you."]
+	"a414e004-d4ed-4cd8-82ea-be4cd92b2e55" [label="You would like to schedule a service appointment."]
+	end_call [label="End Call" shape=doublecircle]
+	"b1e3a46b-6f68-47ba-9b34-d248b232bec1" -> "3fb10cd3-b6d6-41bb-9ecb-43ecce8cb03b" [label="confirm existing customer"]
+	"3fb10cd3-b6d6-41bb-9ecb-43ecce8cb03b" -> "a414e004-d4ed-4cd8-82ea-be4cd92b2e55" [label="prefers diy fix"]
+	"3fb10cd3-b6d6-41bb-9ecb-43ecce8cb03b" -> "ebd21f78-9494-4686-b98f-47168ab67609" [label="report broken ac"]
+	"3fb10cd3-b6d6-41bb-9ecb-43ecce8cb03b" -> "e0b39543-c04b-4ae6-9793-9cf18093efc4" [label="decline address sharing"]
+	"ebd21f78-9494-4686-b98f-47168ab67609" -> "82cde5d4-ac03-4753-8c2c-edb203dbd93d" [label="report plumbing leak"]
+	"82cde5d4-ac03-4753-8c2c-edb203dbd93d" -> end_call [label=complete]
+	"a414e004-d4ed-4cd8-82ea-be4cd92b2e55" -> end_call [label=complete]
+	"e0b39543-c04b-4ae6-9793-9cf18093efc4" -> end_call [label=complete]
+}
